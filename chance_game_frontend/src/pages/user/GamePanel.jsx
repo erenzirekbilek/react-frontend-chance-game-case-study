@@ -16,6 +16,8 @@ function GamePanel() {
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ name: '', max_players: 2, bet_level: '' });
   const [coin, setCoin] = useState(Number(localStorage.getItem('coin')) || 0);
+  const [guessInput, setGuessInput] = useState('');
+  const [secretNumber, setSecretNumber] = useState(null);
 
   // GAME STATE
   const [gameStarted, setGameStarted] = useState(false);
@@ -38,8 +40,6 @@ function GamePanel() {
   // ===== Fetch Rooms & Bet Levels =====
   const fetchData = async () => {
     try {
-      console.log('📡 fetchData BAŞLADI');
-
       const [userRes, betRes, roomRes] = await Promise.all([
         axios.get('http://127.0.0.1:8000/api/users/me/', getAuthConfig()),
         axios.get(`${API_BASE}/bet-levels/`, getAuthConfig()),
@@ -55,7 +55,6 @@ function GamePanel() {
 
       setBetLevels(betRes.data || []);
       setRooms(roomRes.data || []);
-
     } catch (err) {
       console.error('❌ FETCH HATASI:', err.message);
       setRooms([]);
@@ -81,162 +80,218 @@ function GamePanel() {
 
   // ===== WebSocket Connection =====
   useEffect(() => {
-    if (!selectedRoom || !userId || !token) return;
+    if (!selectedRoom || !userId || !token) {
+      return;
+    }
 
-    const wsUrl = `ws://127.0.0.1:8000/ws/game/${selectedRoom.id}/?token=${token}`;
-    ws.current = new WebSocket(wsUrl);
+    const connectWebSocket = () => {
+      const wsUrl = `ws://127.0.0.1:8000/ws/game/${selectedRoom.id}/?token=${token}`;
+      
+      ws.current = new WebSocket(wsUrl);
 
-    ws.current.onopen = () => {
-      console.log('✅ WebSocket bağlandı!');
-      setWsConnected(true);
-      addGameMessage('Oyun odasına bağlandınız!', 'system');
-    };
+      ws.current.onopen = () => {
+        setWsConnected(true);
+        addGameMessage('Oyun odasına bağlandınız!', 'system');
+        console.log("WebSocket bağlantısı açıldı");
+      };
 
-    ws.current.onmessage = e => {
-      try {
-        const data = JSON.parse(e.data);
-        switch(data.type) {
-          case 'player_joined':
-            addGameMessage(`👤 ${data.username} odaya girdi`, 'system');
-            setGamePlayers(data.players || {});
-            setGameOver(false);
-            setWinner(null);
-            break;
-          case 'game_start':
-            setGameStarted(true);
-            setGamePlayers(data.players);
-            setCurrentTurn(data.turn);
-            setCurrentTurnUsername(data.turn_username);
-            setSecretNumber(data.secret);
-            setGameOver(false);
-            setWinner(null);
-            setGameMessages([{ msg: `🎮 Oyun başladı! Gizli sayı: ${data.secret} (1-100)`, type: 'system', time: new Date().toLocaleTimeString() }]);
-            break;
-          case 'guess_result':
-            if (data.correct) {
-              addGameMessage(`✅ ${data.username} DOĞRU! Gizli sayı: ${data.secret}`, 'correct');
-            } else {
-              const hintText = data.hint === 'higher' ? '⬆️ YUKARIDA' : '⬇️ AŞAĞIDA';
-              addGameMessage(`❌ ${data.username}: ${data.guess} → ${hintText}`, 'wrong');
-              addGameMessage(`➡️ Sıra ${data.next_turn_username}'ye geçti`, 'system');
-            }
-            setCurrentTurn(data.next_turn);
-            setCurrentTurnUsername(data.next_turn_username);
-            break;
-          case 'game_over':
-            setGameOver(true);
-            setWinner(data.winner_username);
-            addGameMessage(`🏆 ${data.winner_username} kazandı! Ödül: +${data.prize} 💰`, 'winner');
-            const newCoin = userId === data.winner_id ? coin + data.prize : coin - data.prize / 2;
-            setCoin(newCoin);
-            localStorage.setItem('coin', newCoin);
+      ws.current.onmessage = e => {
+        try {
+          const data = JSON.parse(e.data);
 
-            setTimeout(() => {
-              ws.current?.close();
-              resetGameState();
-            }, 500);
-            break;
-          case 'error':
-            addGameMessage(`❌ ${data.message}`, 'error');
-            break;
-          default:
-            console.log('⚠️ Bilinmeyen mesaj:', data.type);
+          switch(data.type) {
+            case 'player_joined':
+              addGameMessage(`👤 ${data.username} odaya girdi`, 'system');
+              setGamePlayers(data.players || {});
+              setGameOver(false);
+              setWinner(null);
+              break;
+
+            case 'game_start':
+              setGameStarted(true);
+              setGamePlayers(data.players);
+              setCurrentTurn(data.turn);
+              setCurrentTurnUsername(data.turn_username);
+              setSecretNumber(data.secret);
+              setGameOver(false);
+              setWinner(null);
+              setGameMessages([{ msg: `🎮 Oyun başladı! Gizli sayı: ${data.secret} (1-100)`, type: 'system', time: new Date().toLocaleTimeString() }]);
+              break;
+
+            case 'guess_result':
+              if (data.correct) {
+                addGameMessage(`✅ ${data.username} DOĞRU! Gizli sayı: ${data.secret}`, 'correct');
+              } else {
+                const hintText = data.hint === 'higher' ? '⬆️ YUKARIDA' : '⬇️ AŞAĞIDA';
+                addGameMessage(`❌ ${data.username}: ${data.guess} → ${hintText}`, 'wrong');
+                addGameMessage(`➡️ Sıra ${data.next_turn_username}'ye geçti`, 'system');
+              }
+              setCurrentTurn(data.next_turn);
+              setCurrentTurnUsername(data.next_turn_username);
+              break;
+
+            case 'game_over':
+              setGameOver(true);
+              setWinner(data.winner_username);
+              addGameMessage(`🏆 ${data.winner_username} kazandı! Ödül: +${data.prize} 💰`, 'winner');
+
+              if (userId === data.winner_id) {
+                const newCoin = coin + data.prize;
+                setCoin(newCoin);
+                localStorage.setItem('coin', newCoin);
+              }
+              
+              setTimeout(() => {
+                ws.current?.close();
+                setSelectedRoom(null);
+                setGameStarted(false);
+                setGameMessages([]);
+                setGameOver(false);
+                setWinner(null);
+                setSecretNumber(null);
+                setGamePlayers({});
+                setWsConnected(false);
+                fetchData();
+              }, 500);
+              break;
+
+            case 'player_disconnected':
+              addGameMessage(`❌ ${data.username} ayrıldı!`, 'error');
+              if (!gameStarted) {
+                setTimeout(() => {
+                  alert('Rakip oyuncu ayrıldı! Odadan çıkılıyor...');
+                  ws.current?.close();
+                  setSelectedRoom(null);
+                  setGameMessages([]);
+                  setWsConnected(false);
+                  fetchData();
+                }, 1000);
+              }
+              break;
+
+            case 'error':
+              addGameMessage(`❌ ${data.message}`, 'error');
+              break;
+
+            default:
+              console.log('⚠️ Bilinmeyen mesaj:', data.type);
+          }
+        } catch (e) {
+          console.error('❌ Mesaj parse hatası:', e);
         }
-      } catch (e) {
-        console.error('❌ Mesaj parse hatası:', e);
-      }
+      };
+
+      ws.current.onerror = (error) => {
+        console.error('❌ WebSocket hatası:', error);
+        setWsConnected(false);
+        addGameMessage('Bağlantı hatası!', 'error');
+      };
+
+      ws.current.onclose = () => {
+        setWsConnected(false);
+      };
     };
 
-    ws.current.onerror = () => {
-      setWsConnected(false);
-      addGameMessage('Bağlantı hatası!', 'error');
-    };
-
-    ws.current.onclose = () => {
-      setWsConnected(false);
-    };
+    connectWebSocket();
 
     return () => {
-      ws.current?.close();
+      if (ws.current) {
+        ws.current.close();
+      }
     };
-  }, [selectedRoom, userId, token, coin]);
+  }, [selectedRoom, userId, token, coin, gameStarted]);
 
-  const resetGameState = () => {
-    setSelectedRoom(null);
-    setGameStarted(false);
-    setGameMessages([]);
-    setGameOver(false);
-    setWinner(null);
-    setSecretNumber(null);
-    setGamePlayers({});
-    setCurrentTurn(null);
-    setCurrentTurnUsername('');
-    setGuessInput('');
-    setWsConnected(false);
-    fetchData();
-  };
-
+  // ===== Helpers =====
   const addGameMessage = (msg, type = 'system') => {
     setGameMessages(prev => [...prev, { msg, type, time: new Date().toLocaleTimeString() }]);
   };
 
-  const [guessInput, setGuessInput] = useState('');
-  const [secretNumber, setSecretNumber] = useState(null);
-
   const makeGuess = () => {
-    if (!ws.current || !gameStarted || currentTurn !== userId) return;
+    if (!ws.current || !gameStarted || currentTurn !== userId) {
+      return;
+    }
+
     const guessNum = parseInt(guessInput, 10);
     if (isNaN(guessNum) || guessNum < 1 || guessNum > 100) {
       alert('1-100 arası sayı girin!');
       return;
     }
-    ws.current.send(JSON.stringify({ type: 'guess', guess: guessNum, user_id: userId }));
+
+    ws.current.send(JSON.stringify({
+      type: 'guess',
+      guess: guessNum,
+      user_id: userId
+    }));
     setGuessInput('');
   };
 
+  // ===== Create Room =====
   const handleSubmit = async e => {
     e.preventDefault();
-    if (!form.name || !form.bet_level) { alert('Lütfen tüm alanları doldurun!'); return; }
+    if (!form.name || !form.bet_level) {
+      alert('Lütfen tüm alanları doldurun!');
+      return;
+    }
+
     setLoading(true);
     try {
-      const payload = { name: form.name, max_players: Number(form.max_players), bet_level_id: Number(form.bet_level) };
-      const res = await axios.post(`${API_BASE}/rooms/`, payload, getAuthConfig());
+      const res = await axios.post(`${API_BASE}/rooms/`, {
+        name: form.name,
+        max_players: Number(form.max_players),
+        bet_level_id: Number(form.bet_level)
+      }, getAuthConfig());
+      
       setRooms(prev => [...prev, res.data]);
       setForm({ name: '', max_players: 2, bet_level: '' });
       alert('Oda başarıyla oluşturuldu! ✅');
-    } catch {
+    } catch (err) {
       alert('Oda oluşturulamadı!');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ===== Delete Room =====
   const handleDelete = async id => {
     if (!window.confirm('Odayı silmek istediğinize emin misiniz?')) return;
+
     setLoading(true);
     try {
       await axios.delete(`${API_BASE}/rooms/${id}/`, getAuthConfig());
       setRooms(prev => prev.filter(r => r.id !== id));
       alert('Oda silindi! ✅');
-    } catch {
+    } catch (err) {
       alert('Oda silinirken hata oluştu!');
       fetchData();
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ===== Join Room =====
   const handleJoinRoom = async roomId => {
+    const id = parseInt(roomId, 10);
+
     setLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/rooms/${roomId}/join/`, {}, getAuthConfig());
-      const room = rooms.find(r => r.id === roomId);
+      await axios.post(`${API_BASE}/rooms/${id}/join/`, {}, getAuthConfig());
+      const room = rooms.find(r => r.id === id);
+
       if (room) {
         setSelectedRoom(room);
         setGameStarted(false);
         setGameMessages([]);
+        setGameOver(false);
+        setCurrentTurn(null);
+        setWsConnected(false);
         addGameMessage(`👤 ${username} odaya katıldı`, 'system');
       }
-    } catch {
-      alert('Odaya katılırken hata oluştu!');
+    } catch (err) {
+      alert(`Hata: ${err.response?.data?.error || 'Odaya katılırken hata oluştu!'}`);
       fetchData();
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   // =====================================================
@@ -244,19 +299,20 @@ function GamePanel() {
   // =====================================================
   if (selectedRoom && gameStarted) {
     const isMyTurn = currentTurn === userId;
+
     return (
       <Container className="mt-5">
         <Row>
           <Col md={8}>
-            <Card bg="dark" text="light" className="p-4 shadow-lg rounded-3">
+            <Card bg="dark" text="light" className="p-4 shadow-lg">
               <h2 className="mb-4">🎮 {selectedRoom.name}</h2>
 
-              <Card bg="secondary" text="white" className="p-3 mb-4 rounded-3">
+              <Card bg="secondary" text="white" className="p-3 mb-4">
                 <Row>
                   <Col><strong>💰 Bakiye:</strong> {coin}</Col>
                   <Col><strong>🎯 Gizli Sayı:</strong> {secretNumber || '?'}</Col>
                 </Row>
-                {Object.entries(gamePlayers).map(([id, name]) => (
+                {gamePlayers && Object.entries(gamePlayers).map(([id, name]) => (
                   <div key={id} style={{ marginLeft: '20px', color: parseInt(id) === userId ? '#00ff00' : '#fff' }}>
                     {parseInt(id) === userId ? '👉 ' : '   '} {name} {parseInt(id) === userId ? '(SİZ)' : ''}
                   </div>
@@ -288,7 +344,7 @@ function GamePanel() {
                   {isMyTurn ? (
                     <>
                       <h5 className="text-warning mb-3">🎯 Sırası Sizin! 1-100 arası tahmin yapın:</h5>
-                      <div className="d-flex gap-2 justify-content-center mb-3 flex-wrap">
+                      <div className="d-flex gap-2 justify-content-center mb-3">
                         <Form.Control 
                           type="number" 
                           min="1" 
@@ -307,7 +363,21 @@ function GamePanel() {
                 </div>
               )}
 
-              <Button variant="outline-danger" className="mt-4 w-100" onClick={resetGameState}>Oyundan Çık</Button>
+              <Button variant="outline-danger" className="mt-4 w-100" onClick={() => {
+                ws.current?.close();
+                setSelectedRoom(null);
+                setGameStarted(false);
+                setGameMessages([]);
+                setGameOver(false);
+                setWinner(null);
+                setSecretNumber(null);
+                setGamePlayers({});
+                setCurrentTurn(null);
+                setCurrentTurnUsername('');
+                setGuessInput('');
+                setWsConnected(false);
+                fetchData();
+              }}>Oyundan Çık</Button>
             </Card>
           </Col>
         </Row>
@@ -321,12 +391,26 @@ function GamePanel() {
   if (selectedRoom) {
     return (
       <Container className="mt-5">
-        <Card bg="dark" text="light" className="p-4 text-center shadow-lg rounded-3">
+        <Card bg="dark" text="light" className="p-4 text-center">
           <h3>⏳ Oyun Başlanmasını Bekleniyor...</h3>
           <p>Başka bir oyuncu katılana kadar bekleyin</p>
           <Badge bg="info" className="mb-3">Oyuncu: {Object.keys(gamePlayers).length} / 2</Badge>
-          <p>🔗 WS: {wsConnected ? '✅ Bağlı' : '❌ Bağlanıyor...'}</p>
-          <Button variant="outline-danger" onClick={resetGameState}>Vazgeç</Button>
+          <p>🔗 WS: {wsConnected ? '✅ Bağlı' : '❌ Bağlanmaya çalışıyor'}</p>
+          <Button variant="outline-danger" onClick={() => { 
+            ws.current?.close(); 
+            setSelectedRoom(null);
+            setGameStarted(false);
+            setGameMessages([]);
+            setGameOver(false);
+            setWinner(null);
+            setSecretNumber(null);
+            setGamePlayers({});
+            setCurrentTurn(null);
+            setCurrentTurnUsername('');
+            setGuessInput('');
+            setWsConnected(false);
+            fetchData();
+          }}>Vazgeç</Button>
         </Card>
       </Container>
     );
@@ -338,54 +422,39 @@ function GamePanel() {
   return (
     <Container className="mt-4">
       <Tab.Container defaultActiveKey="all-rooms">
-        <Card bg="dark" text="white" className="p-4 mb-4 shadow-lg rounded-3">
-          <h3 className="mb-2">🎰 Chance Game - {username}</h3>
-          <Badge bg="success" className="fs-6">💰 {coin}</Badge>
+        <Card bg="dark" text="white" className="p-3 mb-4">
+          <h3>🎰 Chance Game - {username}</h3>
+          <Badge bg="success">💰 {coin}</Badge>
         </Card>
 
-        <Nav variant="tabs" className="mb-4 rounded-3 overflow-hidden shadow-sm">
-          <Nav.Item><Nav.Link eventKey="all-rooms" className="fw-bold text-dark bg-light">🎯 Tüm Odalar</Nav.Link></Nav.Item>
-          <Nav.Item><Nav.Link eventKey="my-rooms" className="fw-bold text-dark bg-light">📝 Benim Odalarım</Nav.Link></Nav.Item>
+        <Nav variant="tabs" className="mb-4">
+          <Nav.Item><Nav.Link eventKey="all-rooms">🎯 Tüm Odalar</Nav.Link></Nav.Item>
+          <Nav.Item><Nav.Link eventKey="my-rooms">📝 Benim Odalarım</Nav.Link></Nav.Item>
         </Nav>
 
         <Tab.Content>
           {/* ALL ROOMS */}
           <Tab.Pane eventKey="all-rooms">
-            <Card bg="dark" text="light" className="p-4 mb-4 shadow-sm rounded-3">
-              <h5 className="mb-3">Yeni Oda Oluştur</h5>
-              <Form onSubmit={handleSubmit} className="d-flex gap-2 flex-wrap">
-                <Form.Control 
-                  placeholder="Oda Adı" 
-                  value={form.name} 
-                  onChange={e => setForm({ ...form, name: e.target.value })} 
-                  required 
-                  disabled={loading} 
-                  className="rounded-2"
-                />
-                
-                <Form.Select 
-                  value={form.bet_level} 
-                  onChange={e => setForm({ ...form, bet_level: e.target.value })} 
-                  required 
-                  disabled={loading} 
-                  className="rounded-2"
-                >
-                  <option value="">Bahis Türü</option>
+            <Card bg="dark" className="p-4 mb-4 text-light">
+              <h5>Yeni Oda Oluştur</h5>
+              <Form onSubmit={handleSubmit} className="d-flex gap-2">
+                <Form.Control placeholder="Oda Adı" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required disabled={loading} />
+                <Form.Control type="number" min="2" value={form.max_players} onChange={e => setForm({ ...form, max_players: Number(e.target.value) })} disabled={loading} />
+                <Form.Select value={form.bet_level} onChange={e => setForm({ ...form, bet_level: e.target.value })} required disabled={loading}>
+                  <option value="">Bahis</option>
                   {betLevels.map(b => <option key={b.id} value={b.id}>{b.level_name}</option>)}
                 </Form.Select>
-                <Button type="submit" variant="success" disabled={loading} className="px-4">
-                  {loading ? <Spinner size="sm" /> : 'Oluştur'}
-                </Button>
+                <Button type="submit" variant="success" disabled={loading}>{loading ? <Spinner size="sm" /> : 'Oluştur'}</Button>
               </Form>
             </Card>
 
             {rooms.length === 0 ? (
-              <Alert variant="info" className="shadow-sm rounded-3">Henüz oda yok</Alert>
+              <Alert variant="info">Henüz oda yok</Alert>
             ) : (
-              <Card bg="dark" text="light" className="shadow-sm rounded-3">
-                <Table variant="dark" hover responsive className="mb-0 align-middle">
+              <Card bg="dark" className="text-light">
+                <Table variant="dark" hover responsive className="mb-0">
                   <thead>
-                    <tr className="text-warning">
+                    <tr>
                       <th>Oda</th>
                       <th>Sahip</th>
                       <th>Bahis</th>
@@ -396,20 +465,18 @@ function GamePanel() {
                   <tbody>
                     {rooms.map(room => (
                       <tr key={room.id}>
-                        <td className="fw-bold">{room.name}</td>
+                        <td>{room.name}</td>
                         <td>{room.creator?.username || '-'}</td>
                         <td><Badge bg="warning" text="dark">{room.bet_level?.level_name || '-'}</Badge></td>
                         <td>{room.users?.length || 0}/2</td>
                         <td>
                           <Button 
                             size="sm" 
-                            variant={room.creator?.id === user?.id ? 'info' : 'primary'}
                             disabled={(room.users?.length || 0) >= 2 || loading} 
                             onClick={() => {
                               if (room.creator?.id === user?.id) setSelectedRoom(room);
                               else handleJoinRoom(room.id);
                             }}
-                            className="px-3"
                           >
                             {room.creator?.id === user?.id ? 'Aç' : 'Katıl'}
                           </Button>
@@ -425,12 +492,12 @@ function GamePanel() {
           {/* MY ROOMS */}
           <Tab.Pane eventKey="my-rooms">
             {myRooms.length === 0 ? (
-              <Alert variant="info" className="shadow-sm rounded-3">Henüz oda oluşturmadınız</Alert>
+              <Alert variant="info">Henüz oda oluşturmadınız</Alert>
             ) : (
-              <Card bg="dark" className="text-light shadow-sm rounded-3">
-                <Table variant="dark" hover responsive className="mb-0 align-middle">
+              <Card bg="dark" className="text-light">
+                <Table variant="dark" hover responsive className="mb-0">
                   <thead>
-                    <tr className="text-warning">
+                    <tr>
                       <th>Oda</th>
                       <th>Bahis</th>
                       <th>Oyuncu</th>
@@ -440,11 +507,11 @@ function GamePanel() {
                   <tbody>
                     {myRooms.map(room => (
                       <tr key={room.id}>
-                        <td className="fw-bold">{room.name}</td>
+                        <td>{room.name}</td>
                         <td><Badge bg="warning" text="dark">{room.bet_level?.level_name || '-'}</Badge></td>
                         <td>{room.users?.length || 0}/2</td>
                         <td>
-                          <Button size="sm" variant="danger" onClick={() => handleDelete(room.id)} disabled={loading} className="px-3">
+                          <Button size="sm" variant="danger" onClick={() => handleDelete(room.id)} disabled={loading}>
                             {loading ? <Spinner size="sm" /> : 'Sil'}
                           </Button>
                         </td>
