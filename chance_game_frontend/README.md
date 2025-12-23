@@ -1,70 +1,320 @@
-# Getting Started with Create React App
+# 🎰 Chance Game - Frontend README
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+---
 
-## Available Scripts
+## 📋 Kurulum
 
-In the project directory, you can run:
+### 1. Bağımlılıkları Yükle
+```bash
+npm install
+```
 
-### `npm start`
+### 2. Backend Çalıştır
+```bash
+# Backend http://127.0.0.1:8000'de çalışıyor olmalı
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### 3. Frontend Başlat
+```bash
+npm start
+# http://localhost:3000 açılır
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### 4. Test Et
+```bash
+# Login/Signup → Dashboard → Oda Oluştur/Katıl → Oyun
+```
 
-### `npm test`
+### 5. Production Build
+```bash
+npm run build
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+---
 
-### `npm run build`
+## 🏗️ Mimari Yaklaşım
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Veri Akışı
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```
+┌─────────────────┐
+│  React Frontend │
+└────────┬────────┘
+         │
+    ┌────┴──────┬────────────┐
+    │            │            │
+  REST API   REST API    WebSocket
+    │            │            │
+ Login       Rooms/Games   Game Events
+ Signup      Bet Levels    (Join, Guess)
+  Users      Transactions
+    │            │            │
+    └────────┬───┴────────┬───┘
+             │            │
+        ┌────▼────────────▼────┐
+        │  Django REST API     │
+        │  + Django Channels   │
+        └────┬───────────┬─────┘
+             │           │
+        ┌────▼───────────▼────┐
+        │       SQLite        │
+        └─────────────────────┘
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Component Yapısı
 
-### `npm run eject`
+```
+App.jsx
+├── Routes
+│   ├── /login → Login (public)
+│   ├── /signup → Signup (public)
+│   ├── /dashboard → ProtectedRoute → GamePanel (user)
+│   ├── /admin → ProtectedRoute → AdminPanel (admin)
+│   ├── /admin/users → UserManagement
+│   ├── /admin/settings → BetSettings
+│   ├── /admin/transactions → AdminTransactions
+│   ├── /admin/bet-levels → BetLevelsAdmin
+│   └── /admin/rooms → RoomsAdmin
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### State Yönetimi
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+**GamePanel'de:**
+```javascript
+// Auth
+username, token, userId, coin, role (localStorage)
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+// Rooms
+rooms, myRooms, betLevels, selectedRoom
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+// Game
+gameStarted, gamePlayers, currentTurn, currentTurnUsername
+gameMessages, gameOver, winner, secretNumber
 
-## Learn More
+// UI
+loading, wsConnected, guessInput, form
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### localStorage Keys
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```javascript
+token              // JWT token
+username           // Kullanıcı adı
+user_id            // Kullanıcı ID
+coin               // Bakiye
+role               // 'user' veya 'admin'
+```
 
-### Code Splitting
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## 📐 Varsayımlar
 
-### Analyzing the Bundle Size
+### Backend API Endpoints
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+```javascript
+// Auth
+POST /api/users/login/
+POST /api/users/signup/
+GET /api/users/me/
 
-### Making a Progressive Web App
+// Games
+GET /api/games/rooms/
+POST /api/games/rooms/
+DELETE /api/games/rooms/{id}/
+POST /api/games/rooms/{id}/join/
+GET /api/games/bet-levels/
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+// Admin
+GET /admin/users/
+PATCH /admin/users/{id}/
+DELETE /admin/users/{id}/
+GET /admin/transactions/
+GET /admin/bet-levels/
+POST /admin/bet-levels/
+```
 
-### Advanced Configuration
+### Login Yanıtı
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+```javascript
+{
+  access: "JWT_TOKEN",
+  user_id: 1,
+  username: "oyuncu1",
+  role: "user",
+  coin: 1000
+}
+```
 
-### Deployment
+### Room Yapısı
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+```javascript
+{
+  id: 1,
+  name: "Oda 1",
+  creator: { id: 1, username: "oyuncu1" },
+  max_players: 2,
+  bet_level: { id: 1, level_name: "Düşük" },
+  users: [{ id: 1, username: "oyuncu1" }, ...],
+  status: "waiting" | "playing" | "finished"
+}
+```
 
-### `npm run build` fails to minify
+### WebSocket Mesajları
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+**Client → Server:**
+```javascript
+{
+  type: "guess",
+  guess: 50,        // 1-100
+  user_id: 1
+}
+```
+
+**Server → Client:**
+```javascript
+// player_joined
+{ type: "player_joined", username: "...", players: {...} }
+
+// game_start
+{ type: "game_start", players: {...}, turn: 1, turn_username: "...", secret: 50 }
+
+// guess_result
+{ type: "guess_result", username: "...", correct: false, hint: "higher", next_turn: 2, next_turn_username: "..." }
+
+// game_over
+{ type: "game_over", winner_username: "...", winner_id: 1, prize: 100 }
+
+// error
+{ type: "error", message: "..." }
+```
+
+### Token Format
+
+- JWT access token
+- Header: `Authorization: Bearer {token}`
+- Geçersiz token (401) → localStorage temizle → /login'e yönlendir
+
+### Authorization
+
+```javascript
+PUBLIC:
+├── /login
+└── /signup
+
+PROTECTED (authenticated):
+├── /dashboard (role: user)
+│   └── Rooms oluştur/katıl, tahmin yap
+│
+└── /admin/* (role: admin)
+    ├── /admin → Dashboard
+    ├── /admin/users → Kullanıcı yönetimi
+    ├── /admin/bet-levels → Bahis seviyeleri
+    ├── /admin/rooms → Odaları görüntüle
+    ├── /admin/settings → Ayarlar
+    └── /admin/transactions → İşlem geçmişi
+```
+
+---
+
+## ⚠️ Bilerek Yapılmayanlar
+
+### 1. Redux / State Management Library
+
+**Neden Eklemedim:**
+- MVP’de component sayısı az ve prop drilling minimal olduğundan Redux veya benzeri state management eklenmedi; ileride component sayısı arttığında ve global state yönetimi kritik hale geldiğinde eklenecek.
+
+---
+
+### 2. React.memo, useMemo, useCallback Optimizations
+
+**Neden Eklemedim:**
+- Erken optimizasyon gereksiz olduğundan ve re-render sorunları minimal olduğundan performans optimizasyonları eklenmedi; ileride component sayısı artınca ve profiling gerekirse uygulanacak.
+
+---
+
+### 3. Suspense & React.lazy Code Splitting
+
+**Neden Eklemedim:**
+- Proje küçük ve bundle size düşük olduğundan kod bölme ve lazy loading yapılmadı; bundle büyüyüp performans kritik olursa eklenecek.
+
+---
+
+### 4. Concurrent Features (useTransition, useDeferredValue)
+
+**Neden Eklemedim:**
+- MVP’de heavy background task veya input blocking olmadığı için concurrent features kullanılmadı; ileride UI responsive kalması gerekirse eklenecek.
+
+---
+
+### 5. HTTP-Only Cookies (Secure Token Storage)
+
+**Neden Eklemedim:**
+- Basit MVP’de token yönetimi için HTTP-only cookie gerekli olmadığından eklenmedi; production aşamasında güvenli token saklama gerektiğinde eklenecek.
+
+---
+
+### 6. Custom Hooks (useDebounce, useLocalStorage, useFetch)
+
+**Neden Eklemedim:**
+- Basit MVP’de token yönetimi için HTTP-only cookie gerekli olmadığından eklenmedi; production aşamasında güvenli token saklama gerektiğinde eklenecek.
+
+---
+
+### 7. React Hook Form + Validation
+
+**Neden Eklemedim:**
+- MVP’de form sayısı az ve inline validation yeterli olduğundan react-hook-form kullanılmadı; ileride form sayısı ve validation complexity arttığında eklenecek.
+
+---
+
+## 📁 Proje Dosya Yapısı
+
+```
+src/
+├── pages/
+│   ├── Login.jsx
+│   ├── Signup.jsx
+│   ├── user/
+│   │   ├── GamePanel.jsx
+│   │   └── GameRoomContainer.jsx
+│   └── admin/
+│       ├── AdminPanel.jsx
+│       ├── AdminTransactions.jsx
+│       ├── BetSettings.jsx
+│       └── UserManagement.jsx
+│
+├── components/
+│   ├── layout/
+│   │   ├── admin/
+│   │   │   ├── AdminNavbar.jsx
+│   │   │   ├── BetLevelsAdmin.jsx
+│   │   │   └── RoomsAdmin.jsx
+│   │   └── user/
+│   │       └── UserNavbar.jsx
+│   └── ProtectedRoute.jsx
+│
+├── App.jsx
+└── index.jsx
+```
+
+---
+
+## ⚡ Hızlı Başlangıç
+
+```bash
+# Terminal 1
+npm start
+
+# Terminal 2 (opsiyonel - Backend test)
+curl http://127.0.0.1:8000/api/games/rooms/ \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Tarayıcı
+http://localhost:3000
+```
+
+---
+
+**Son Güncelleme:** Aralık 2024  
+**Durum:** 🚧 Development  
+**License:** MIT
